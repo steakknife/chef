@@ -211,6 +211,7 @@ class Chef
         :boolean     => true,
         :default     => false
 
+      # public API for subclasses to override
       def default_bootstrap_template
         "chef-full"
       end
@@ -230,80 +231,65 @@ class Chef
         return @node_exists unless @node_exists.nil?
         @node_exists =
           begin
-          rest.get_rest("node/#{node_name}")
-          true
-#        rescue # Something
-#          false
-        end
+            rest.get_rest("node/#{node_name}")
+            true
+          rescue Net::HTTPServerException => e
+            raise unless e.response.code == "404"
+            false
+          end
       end
 
       def client_exists?
         return @client_exists unless @client_exists.nil?
         @client_exists =
-        begin
-          rest.get_rest("client/#{node_name}")
-          true
-#        rescue  # Something
-#          false
-        end
+          begin
+            rest.get_rest("client/#{node_name}")
+            true
+          rescue Net::HTTPServerException => e
+            raise unless e.response.code == "404"
+            false
+          end
       end
 
       def register_client
         tmpdir = Dir.mktmpdir
         client_path = File.join(tmpdir, "#{node_name}.pem")
-        overwrite_node = config[:bootstrap_overwrite_node]
 
-        if node_exists?
-          if client_exists?
-            if !overwrite_node
-              # default:  protect users from overwriting properly created node/client pairs
-              ui.fatal("Node and client already exist and bootstrap_overwrite_node is false")
-            else
-              # chainsaw mode:  if you typo the wong thing, we will delete your production servers
-              ui.info("Will overwrite existing node and client because bootstrap_overwrite_node is true")
-            end
+        overwriting_node = false
+
+        if node_exists? && client_exists?
+          if !config[:bootstrap_overwrite_node]
+            ui.fatal("Node and client already exist, set bootstrap_overwrite_node to true to overwrite")
           else
-            # most positive action:  assume you've precreated node data
-            ui.info("Node exists, but client does not, assuming pre-created node data")
+            ui.info("Overwriting existing node and client because bootstrap_overwrite_node is true")
+            overwriting_node = true
           end
         else
-          if client_exists?
-            # most positive action:  you forgot to delete a client, so clean it up
-            ui.info("Node does not exist, but client does, will delete and recreate old client")
-          else
-            ui.info("Will create new node and client")
-          end
+          ui.info("Node exists, but client does not, generating new client") if node_exists?
+          ui.info("Stale client with no node, deleting and recreating") if client_exists?
         end
 
-        ui.info("Creating client for #{node_name} on server#{ "(replacing existing client)" if client_exists? }")
+        ui.info("Creating client for #{node_name} on server#{ " (replacing existing client)" if client_exists? }")
 
         Chef::ApiClient::Registration.new(node_name, client_path, http_api: rest).run
 
-        first_boot_attributes = config[:first_boot_attributes]
-        new_node = Chef::Node.new
-        new_node.name(node_name)
-        new_node.run_list(normalized_run_list)
-        new_node.normal_attrs = first_boot_attribute if first_boot_attributes
-        new_node.environment(config[:environment]) if config[:environment]
+        if !node_exists? || overwriting_node
+          ui.info("Creating new node for #{node_name} on server#{ " (replacing existing node)" if node_exists? }")
+          first_boot_attributes = config[:first_boot_attributes]
+          new_node = Chef::Node.new
+          new_node.name(node_name)
+          new_node.run_list(normalized_run_list)
+          new_node.normal_attrs = first_boot_attribute if first_boot_attributes
+          new_node.environment(config[:environment]) if config[:environment]
 
-        client_rest = Chef::REST.new(
-          Chef::Config.chef_server_url,
-          node_name,
-          client_path,
-        )
+          client_rest = Chef::REST.new(
+            Chef::Config.chef_server_url,
+            node_name,
+            client_path,
+          )
 
-        client_rest.post_rest("nodes/", new_node)
-
-        #          else
-        #            ui.fatal("Something went wrong! Unable to find the Node: Please delete the Client and retry.")
-        #            exit 2
-        #          end
-        #        elsif client.empty?
-        #          ui.fatal("Something went wrong! Unable to find the Client: Please delete the Node and retry.")
-        #          exit 3
-        #        else
-        #          ui.info("Node already exist - skipping registration")
-        #        end
+          client_rest.post_rest("nodes/", new_node)
+        end
       end
 
       def bootstrap_template
@@ -452,9 +438,7 @@ class Chef
       def update_vault(vault, item)
         begin
           vault_item = ChefVault::Item.load(vault, item)
-          # this is idiotic to call here, it searches for the node to get the client to set on the item -- and
-          # we just created the node and the client, so why the hell do we need to wait for search?
-          vault_item.clients("name:#{node_name}")
+          valut_item.keys.add('#CLIENT#', vault_item.get_instance_variable(:@secret), "clients")
           vault_item.save
         rescue ChefVault::Exceptions::KeysNotFound,
           ChefVault::Exceptions::ItemNotFound
