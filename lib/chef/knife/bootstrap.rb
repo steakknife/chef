@@ -25,6 +25,8 @@ class Chef
     class Bootstrap < Knife
       include DataBagSecretOptions
 
+      attr_reader :client_path
+
       deps do
         require 'chef/knife/core/bootstrap_context'
         require 'chef/json_compat'
@@ -191,13 +193,11 @@ class Chef
         :short       => '-L VAULT_FILE',
         :long        => '--vault-file',
         :description => 'A JSON file with a list of vault',
-        :proc        => lambda { |l| Chef::JSONCompat.from_json(::File.read(l)) }
 
       option :vault_list,
         :short       => '-l VAULT_LIST',
         :long        => '--vault-list VAULT_LIST',
         :description => 'A JSON string with the vault to be updated',
-        :proc        => lambda { |v| Chef::JSONCompat.from_json(v) }
 
       option :bootstrap_uses_validator,
         :long        => "--[no-]bootstrap-uses-validator",
@@ -251,9 +251,9 @@ class Chef
           end
       end
 
-      def register_client
-        tmpdir = Dir.mktmpdir
-        client_path = File.join(tmpdir, "#{node_name}.pem")
+      def register_client_and_node
+        @tmpdir = Dir.mktmpdir
+        @client_path = File.join(tmpdir, "#{node_name}.pem")
 
         overwriting_node = false
 
@@ -343,24 +343,23 @@ class Chef
         config[:chef_node_name]
       end
 
+      def vault_json
+        @vault_json ||=
+          begin
+            json = vault_list ? vault_list : File.read(config[:vault_file])
+            Chef::JSONCompat.from_json(json)
+          end
+      end
+
       def run
         validate_name_args!
 
         $stdout.sync = true
 
+        register_client_and_node
+
         if config[:vault_list] || config[:vault_file]
-          ui.info("#{ui.color(connection_server_name, :bold)} Starting Pre-Bootstrap Process")
-          config[:client_pem] = File.expand_path(File.join(File.dirname(__FILE__), 'keeper.pem'))
-
-          ui.info("#{ui.color(connection_server_name, :bold)} Registering Node #{ui.color(node_name, :bold)}")
-          register_client
-
-          ui.info("#{ui.color(connection_server_name, :bold)} Waiting search node.. ") while wait_node
-
-          ui.info("#{ui.color(connection_server_name, :bold)} Updating Chef Vault(s)")
-          update_vault_list(config[:vault_list]) if config[:vault_list]
-          de
-          update_vault_list(config[:vault_file]) if config[:vault_file]
+          update_vault_list(client, vault_json)
         end
 
         ui.info("Connecting to #{ui.color(connection_server_name, :bold)}")
@@ -423,6 +422,10 @@ class Chef
         command
       end
 
+      def client
+        @client ||= Chef::ApiClient.from_file(client_path)
+      end
+
       def update_vault_list(vault_list)
         vault_list.each do |vault, item|
           if item.is_a?(Array)
@@ -438,7 +441,8 @@ class Chef
       def update_vault(vault, item)
         begin
           vault_item = ChefVault::Item.load(vault, item)
-          valut_item.keys.add('#CLIENT#', vault_item.get_instance_variable(:@secret), "clients")
+          # XXX: this ugly hack is to bypass ChefVault doing search
+          valut_item.keys.add(client, vault_item.get_instance_variable(:@secret), "clients")
           vault_item.save
         rescue ChefVault::Exceptions::KeysNotFound,
           ChefVault::Exceptions::ItemNotFound
