@@ -412,6 +412,8 @@ class Chef
         end
       end
 
+      # connection_server_name is the DNS or IP we are going to connect to, it is not necessarily
+      # the node name, the fqdn, or the hostname of the server
       def connection_server_name
         Array(@name_args).first
       end
