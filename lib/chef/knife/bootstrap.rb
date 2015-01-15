@@ -251,7 +251,7 @@ class Chef
       def register_client
         tmpdir = Dir.mktmpdir
         client_path = File.join(tmpdir, "#{node_name}.pem")
-        overwrite_node = Chef::Config[:knife][:bootstrap_overwrite_node] || config[:bootstrap_overwrite_node]
+        overwrite_node = config[:bootstrap_overwrite_node]
 
         if node_exists?
           if client_exists?
@@ -279,7 +279,7 @@ class Chef
 
         Chef::ApiClient::Registration.new(node_name, client_path, http_api: rest).run
 
-        first_boot_attributes = Chef::Config[:knife][:first_boot_attributes] || config[:first_boot_attributes]
+        first_boot_attributes = config[:first_boot_attributes]
         new_node = Chef::Node.new
         new_node.name(node_name)
         new_node.run_list(normalized_run_list)
