@@ -201,12 +201,6 @@ class Chef
         :long        => '--vault-list VAULT_LIST',
         :description => 'A JSON string with the vault to be updated'
 
-      option :bootstrap_uses_validator,
-        :long        => "--[no-]bootstrap-uses-validator",
-        :description => "Force bootstrap to use validation.pem instead of users client key",
-        :boolean     => true,
-        :default     => false
-
       option :bootstrap_overwrite_node,
         :long        => "--[no-]bootstrap-overwrite-node",
         :description => "When bootstrapping (without validation.pem) overwrite existing node",
@@ -377,16 +371,24 @@ class Chef
 
         $stdout.sync = true
 
-        register_client_and_node
+        # chef-vault integration must use the new client-side hawtness, otherwise to use the
+        # new client-side hawtness, just delete your validation key.
+        if config[:vault_list] || config[:vault_file] || !File.exist?(Chef::Config[:validation_key])
+          register_client_and_node
 
-        if config[:vault_list] || config[:vault_file]
-          ui.info("Waiting for client to be searchable..") while wait_for_client
-          update_vault_list(vault_json)
+          if config[:vault_list] || config[:vault_file]
+            ui.info("Waiting for client to be searchable..") while wait_for_client
+            update_vault_list(vault_json)
+          end
+
+          # FIXME: should probably rename this or something since its internal to handing off to the
+          # bootstrap templates for rendering
+          config[:client_pem] = client_path
+        else
+          ui.info("Doing old-style registration with a validation key...")
+          ui.info("Please simply delete your validation key in order to use your user credentials instead")
+          ui.info("")
         end
-
-        # FIXME: should probably rename this or something since its internal to handing off to the
-        # bootstrap templates for rendering
-        config[:client_pem] = client_path
 
         ui.info("Connecting to #{ui.color(connection_server_name, :bold)}")
 
