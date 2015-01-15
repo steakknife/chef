@@ -19,6 +19,7 @@
 require 'chef/knife'
 require 'chef/knife/data_bag_secret_options'
 require 'erubis'
+require 'tmpdir'
 
 class Chef
   class Knife
@@ -31,6 +32,7 @@ class Chef
         require 'chef/knife/core/bootstrap_context'
         require 'chef/json_compat'
         require 'chef/api_client/registration'
+        require 'chef/api_client'
         require 'chef/node'
         require 'tempfile'
         require 'highline'
@@ -231,7 +233,7 @@ class Chef
         return @node_exists unless @node_exists.nil?
         @node_exists =
           begin
-            rest.get_rest("node/#{node_name}")
+            rest.get_rest("nodes/#{node_name}")
             true
           rescue Net::HTTPServerException => e
             raise unless e.response.code == "404"
@@ -243,7 +245,7 @@ class Chef
         return @client_exists unless @client_exists.nil?
         @client_exists =
           begin
-            rest.get_rest("client/#{node_name}")
+            rest.get_rest("clients/#{node_name}")
             true
           rescue Net::HTTPServerException => e
             raise unless e.response.code == "404"
@@ -251,15 +253,23 @@ class Chef
           end
       end
 
+      def client_path
+        @client_path ||=
+          begin
+            # use an ivar to hold onto the reference so it doesn't get GC'd
+            @tmpdir = Dir.mktmpdir
+            File.join(@tmpdir, "#{node_name}.pem")
+          end
+      end
+
       def register_client_and_node
-        @tmpdir = Dir.mktmpdir
-        @client_path = File.join(tmpdir, "#{node_name}.pem")
 
         overwriting_node = false
 
         if node_exists? && client_exists?
           if !config[:bootstrap_overwrite_node]
             ui.fatal("Node and client already exist, set bootstrap_overwrite_node to true to overwrite")
+            exit 1
           else
             ui.info("Overwriting existing node and client because bootstrap_overwrite_node is true")
             overwriting_node = true
@@ -269,17 +279,17 @@ class Chef
           ui.info("Stale client with no node, deleting and recreating") if client_exists?
         end
 
-        ui.info("Creating client for #{node_name} on server#{ " (replacing existing client)" if client_exists? }")
+        ui.info("Creating new client for #{node_name} #{ " (replacing existing client)" if client_exists? }")
 
         Chef::ApiClient::Registration.new(node_name, client_path, http_api: rest).run
 
         if !node_exists? || overwriting_node
-          ui.info("Creating new node for #{node_name} on server#{ " (replacing existing node)" if node_exists? }")
+          ui.info("Creating new node for #{node_name} #{ " (replacing existing node)" if node_exists? }")
           first_boot_attributes = config[:first_boot_attributes]
           new_node = Chef::Node.new
           new_node.name(node_name)
           new_node.run_list(normalized_run_list)
-          new_node.normal_attrs = first_boot_attribute if first_boot_attributes
+          new_node.normal_attrs = first_boot_attributes if first_boot_attributes
           new_node.environment(config[:environment]) if config[:environment]
 
           client_rest = Chef::REST.new(
@@ -288,7 +298,13 @@ class Chef
             client_path,
           )
 
-          client_rest.post_rest("nodes/", new_node)
+          # duplicates code with node.save, but we can't easily inject our Chef::REST object
+          begin
+            client_rest.put_rest("nodes/#{node_name}", new_node)
+          rescue Net::HTTPServerException => e
+            raise unless e.response.code == "404"
+            client_rest.post_rest("nodes", new_node)
+          end
         end
       end
 
@@ -351,6 +367,11 @@ class Chef
           end
       end
 
+      def wait_for_client
+        sleep 5
+        Chef::Search::Query.new.search(:client, "name:#{node_name}")[0]
+      end
+
       def run
         validate_name_args!
 
@@ -359,8 +380,13 @@ class Chef
         register_client_and_node
 
         if config[:vault_list] || config[:vault_file]
-          update_vault_list(client, vault_json)
+          ui.info("Waiting for client to be searchable..") while wait_for_client
+          update_vault_list(vault_json)
         end
+
+        # FIXME: should probably rename this or something since its internal to handing off to the
+        # bootstrap templates for rendering
+        config[:client_pem] = client_path
 
         ui.info("Connecting to #{ui.color(connection_server_name, :bold)}")
 
@@ -380,7 +406,8 @@ class Chef
         if connection_server_name.nil?
           ui.error("Must pass an FQDN or ip to bootstrap")
           exit 1
-        elsif connection_server_name.first == "windows"
+        elsif connection_server_name == "windows"
+          # catches "knife bootstrap windows" when that command is not installed
           ui.warn("Hostname containing 'windows' specified. Please install 'knife-windows' if you are attempting to bootstrap a Windows node via WinRM.")
         end
       end
@@ -422,10 +449,6 @@ class Chef
         command
       end
 
-      def client
-        @client ||= Chef::ApiClient.from_file(client_path)
-      end
-
       def update_vault_list(vault_list)
         vault_list.each do |vault, item|
           if item.is_a?(Array)
@@ -441,8 +464,7 @@ class Chef
       def update_vault(vault, item)
         begin
           vault_item = ChefVault::Item.load(vault, item)
-          # XXX: this ugly hack is to bypass ChefVault doing search
-          valut_item.keys.add(client, vault_item.get_instance_variable(:@secret), "clients")
+          valut_item.clients("name:#{node_name}")
           vault_item.save
         rescue ChefVault::Exceptions::KeysNotFound,
           ChefVault::Exceptions::ItemNotFound
