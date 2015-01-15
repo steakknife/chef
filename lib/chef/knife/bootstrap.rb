@@ -192,12 +192,12 @@ class Chef
       option :vault_file,
         :short       => '-L VAULT_FILE',
         :long        => '--vault-file',
-        :description => 'A JSON file with a list of vault',
+        :description => 'A JSON file with a list of vault'
 
       option :vault_list,
         :short       => '-l VAULT_LIST',
         :long        => '--vault-list VAULT_LIST',
-        :description => 'A JSON string with the vault to be updated',
+        :description => 'A JSON string with the vault to be updated'
 
       option :bootstrap_uses_validator,
         :long        => "--[no-]bootstrap-uses-validator",
