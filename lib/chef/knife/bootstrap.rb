@@ -52,14 +52,12 @@ class Chef
       option :ssh_port,
         :short => "-p PORT",
         :long => "--ssh-port PORT",
-        :description => "The ssh port",
-        :proc => Proc.new { |key| Chef::Config[:knife][:ssh_port] = key }
+        :description => "The ssh port"
 
       option :ssh_gateway,
         :short => "-G GATEWAY",
         :long => "--ssh-gateway GATEWAY",
-        :description => "The ssh gateway",
-        :proc => Proc.new { |key| Chef::Config[:knife][:ssh_gateway] = key }
+        :description => "The ssh gateway"
 
       option :forward_agent,
         :short => "-A",
@@ -83,18 +81,15 @@ class Chef
 
       option :bootstrap_version,
         :long => "--bootstrap-version VERSION",
-        :description => "The version of Chef to install",
-        :proc => lambda { |v| Chef::Config[:knife][:bootstrap_version] = v }
+        :description => "The version of Chef to install"
 
       option :bootstrap_proxy,
         :long => "--bootstrap-proxy PROXY_URL",
-        :description => "The proxy server for the node being bootstrapped",
-        :proc => Proc.new { |p| Chef::Config[:knife][:bootstrap_proxy] = p }
+        :description => "The proxy server for the node being bootstrapped"
 
       option :bootstrap_no_proxy,
         :long => "--bootstrap-no-proxy [NO_PROXY_URL|NO_PROXY_IP]",
-        :description => "Do not proxy locations for the node being bootstrapped; this option is used internally by Opscode",
-        :proc => Proc.new { |np| Chef::Config[:knife][:bootstrap_no_proxy] = np }
+        :description => "Do not proxy locations for the node being bootstrapped; this option is used internally by Opscode"
 
       # DEPR: Remove this option in Chef 13
       option :distro,
@@ -161,23 +156,19 @@ class Chef
 
       option :bootstrap_url,
         :long        => "--bootstrap-url URL",
-        :description => "URL to a custom installation script",
-        :proc        => Proc.new { |u| Chef::Config[:knife][:bootstrap_url] = u }
+        :description => "URL to a custom installation script"
 
       option :bootstrap_install_command,
         :long        => "--bootstrap-install-command COMMANDS",
-        :description => "Custom command to install chef-client",
-        :proc        => Proc.new { |ic| Chef::Config[:knife][:bootstrap_install_command] = ic }
+        :description => "Custom command to install chef-client"
 
       option :bootstrap_wget_options,
         :long        => "--bootstrap-wget-options OPTIONS",
-        :description => "Add options to wget when installing chef-client",
-        :proc        => Proc.new { |wo| Chef::Config[:knife][:bootstrap_wget_options] = wo }
+        :description => "Add options to wget when installing chef-client"
 
       option :bootstrap_curl_options,
         :long        => "--bootstrap-curl-options OPTIONS",
-        :description => "Add options to curl when install chef-client",
-        :proc        => Proc.new { |co| Chef::Config[:knife][:bootstrap_curl_options] = co }
+        :description => "Add options to curl when install chef-client"
 
       option :node_ssl_verify_mode,
         :long        => "--node-ssl-verify-mode [peer|none]",
