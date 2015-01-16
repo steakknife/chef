@@ -351,14 +351,14 @@ class Chef
       def vault_json
         @vault_json ||=
           begin
-            json = vault_list ? vault_list : File.read(config[:vault_file])
+            json = config[:vault_list] ? config[:vault_list] : File.read(config[:vault_file])
             Chef::JSONCompat.from_json(json)
           end
       end
 
       def wait_for_client
-        sleep 5
-        Chef::Search::Query.new.search(:client, "name:#{node_name}")[0]
+        sleep 1
+        !Chef::Search::Query.new.search(:client, "name:#{node_name}")[0]
       end
 
       def run
@@ -463,7 +463,7 @@ class Chef
       def update_vault(vault, item)
         begin
           vault_item = ChefVault::Item.load(vault, item)
-          valut_item.clients("name:#{node_name}")
+          vault_item.clients("name:#{node_name}")
           vault_item.save
         rescue ChefVault::Exceptions::KeysNotFound,
           ChefVault::Exceptions::ItemNotFound
