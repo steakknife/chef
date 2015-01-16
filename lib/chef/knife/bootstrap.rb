@@ -280,11 +280,6 @@ class Chef
         if !node_exists? || overwriting_node
           ui.info("Creating new node for #{node_name} #{ " (replacing existing node)" if node_exists? }")
           first_boot_attributes = config[:first_boot_attributes]
-          new_node = Chef::Node.new
-          new_node.name(node_name)
-          new_node.run_list(normalized_run_list)
-          new_node.normal_attrs = first_boot_attributes if first_boot_attributes
-          new_node.environment(config[:environment]) if config[:environment]
 
           client_rest = Chef::REST.new(
             Chef::Config.chef_server_url,
@@ -292,13 +287,13 @@ class Chef
             client_path,
           )
 
-          # duplicates code with node.save, but we can't easily inject our Chef::REST object
-          begin
-            client_rest.put_rest("nodes/#{node_name}", new_node)
-          rescue Net::HTTPServerException => e
-            raise unless e.response.code == "404"
-            client_rest.post_rest("nodes", new_node)
-          end
+          new_node = Chef::Node.new(chef_server_rest: client_rest)
+          new_node.name(node_name)
+          new_node.run_list(normalized_run_list)
+          new_node.normal_attrs = first_boot_attributes if first_boot_attributes
+          new_node.environment(config[:environment]) if config[:environment]
+
+          new_node.save
         end
       end
 
